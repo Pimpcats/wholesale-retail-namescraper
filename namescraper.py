@@ -21,51 +21,65 @@ import os
 import re
 import sys
 
-# --- Patterns for the lines we want to THROW AWAY -------------------------
+# --- Finding the brand / store name ---------------------------------------
+# Web pages copy as PLAIN TEXT, so underlines / links / bold are lost. The one
+# signal every listing has is its minimum-order line ("$X min"), and the brand
+# name is always the line right above it (skipping any star rating). We anchor
+# on that line, then walk back to the nearest line that isn't price / rating /
+# shipping / badge noise. This works whether or not there's a product title.
 
-# "$150 min", "$0 min", "$ 117 min"  (the minimum order line)
-PRICE_RE = re.compile(r"^\$\s?[\d,]+\s*min$", re.IGNORECASE)
-
-# A bare star rating on its own line, e.g. "4.8" or "5"
-RATING_RE = re.compile(r"^\d+(\.\d+)?$")
-
-# Shipping / discount lines: "Free shipping", "Up to 5% off",
-# "Up to $150 off + free shipping", etc.
+MIN_RE = re.compile(r"\$\s?[\d.,]+\s*min", re.IGNORECASE)         # "$120 min"
+RATING_RE = re.compile(r"^\d+(\.\d+)?$")                          # "4.8"
 SHIPPING_RE = re.compile(r"(free shipping|%\s*off|\bup to\b|\$\s?[\d,]+\s*off)",
                          re.IGNORECASE)
+MSRP_RE = re.compile(r"\bMSRP\b", re.IGNORECASE)                  # "$11.50 MSRP $23"
+STANDALONE_PRICE_RE = re.compile(r"^\$\s?[\d.,]+$")               # "$11.50", "$1"
+COLORS_RE = re.compile(r"^\d+\s+colou?rs?$", re.IGNORECASE)       # "5 colors"
+BADGE_RE = re.compile(r"^(new|sale|bestseller|trending|popular|only .*\bleft\b)$",
+                      re.IGNORECASE)
 
 
-def is_noise(line):
-    """Return True if a line is a price, rating, or shipping/discount line."""
+def is_skippable(line):
+    """True for price/rating/shipping/badge lines we walk past to reach a name."""
     return bool(
-        PRICE_RE.match(line)
-        or RATING_RE.match(line)
+        RATING_RE.match(line)
         or SHIPPING_RE.search(line)
+        or MSRP_RE.search(line)
+        or STANDALONE_PRICE_RE.match(line)
+        or COLORS_RE.match(line)
+        or BADGE_RE.match(line)
     )
 
 
+def clean_name(line):
+    """Drop a leading location-pin / bullet that sometimes copies before a name."""
+    return re.sub(r"^(?:[\s•·]|\U0001F4CD|️)+", "", line).strip()
+
+
 def extract_names(text):
-    """Pull store names out of pasted marketplace text.
+    """Pull brand / store names out of pasted marketplace text.
 
-    Each listing looks like:
-
-        Store Name
-        [4.8]            <- optional rating
-        $100 min
-        [Free shipping]  <- optional shipping/discount
-
-    The store name is the only line in a listing that is NOT a price, rating, or
-    shipping/discount line, so we simply keep those and drop the rest. This works
-    whether or not the segments are separated by blank lines.
+    Every listing has a minimum-order line ("$X min"); the brand name is the
+    nearest line above it that isn't a price, rating, shipping, or badge line.
+    Anchoring on "$X min" means product titles (and any other extra lines some
+    listings have) are ignored -- only the brand is kept. Works across page
+    layouts whether or not each listing also shows a product title.
     """
+    lines = [raw.strip() for raw in text.splitlines()]
     names = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        if is_noise(line):
-            continue
-        names.append(line)
+    for i, line in enumerate(lines):
+        if not MIN_RE.search(line):
+            continue                                  # find a "$X min" anchor
+        for j in range(i - 1, -1, -1):
+            prev = lines[j]
+            if not prev:
+                continue                              # skip blank lines
+            if MIN_RE.search(prev):
+                break                                 # ran into previous listing
+            if is_skippable(prev):
+                continue                              # skip price/rating/shipping
+            names.append(clean_name(prev))            # line above = brand name
+            break
     return names
 
 

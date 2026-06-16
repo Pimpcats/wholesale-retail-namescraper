@@ -1,8 +1,16 @@
 # Wholesale / Retail Name Scraper
 
-Takes the text you copy from a wholesale marketplace page (e.g. Faire) and pulls
-out **only the store names** — the first line of each listing — into an Excel
-(`.xlsx`) worksheet.
+Takes the text you copy from a wholesale marketplace page (e.g. Faire, Temu /
+TikTok Shop wholesale) and pulls out **only the brand / store names** into an
+Excel (`.xlsx`) worksheet.
+
+It finds the brand by anchoring on each listing's **minimum-order line**
+(`$X min`) — the brand name is the line right above it. Because of that, it
+ignores product titles, `MSRP` prices, star ratings, badges ("New",
+"Bestseller", "5 colors"), and shipping / discount lines, and it works even when
+different listings have a different number of lines. (Underlines and links don't
+survive copy-paste — copied text is always plain — so the `$X min` anchor is
+what makes this reliable.)
 
 There are two versions in this repo:
 

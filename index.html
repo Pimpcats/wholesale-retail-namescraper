@@ -93,24 +93,45 @@
 </div>
 
 <script>
-// --- Lines we throw away --------------------------------------------------
-var PRICE_RE    = /^\$\s?[\d,]+\s*min$/i;          // "$150 min", "$0 min"
-var RATING_RE   = /^\d+(\.\d+)?$/;                   // "4.8"
-var SHIPPING_RE = /(free shipping|%\s*off|\bup to\b|\$\s?[\d,]+\s*off)/i;
+// --- Finding the brand / store name ---------------------------------------
+// Web pages copy as PLAIN TEXT, so underlines / links / bold are lost. The one
+// signal every listing has is its minimum-order line ("$X min"), and the brand
+// name is always the line right above it (skipping any star rating). We anchor
+// on that line, then walk back to the nearest line that isn't price / rating /
+// shipping / badge noise. This works whether or not there's a product title.
 
-function isNoise(line) {
-  return PRICE_RE.test(line) || RATING_RE.test(line) || SHIPPING_RE.test(line);
+var MIN_RE = /\$\s?[\d.,]+\s*min/i;            // "$120 min", "4.8 $50 min"
+var RATING_RE = /^\d+(\.\d+)?$/;               // a star rating on its own line
+var SHIPPING_RE = /(free shipping|%\s*off|\bup to\b|\$\s?[\d,]+\s*off)/i;
+var MSRP_RE = /\bMSRP\b/i;                     // price line: "$11.50 MSRP $23"
+var STANDALONE_PRICE_RE = /^\$\s?[\d.,]+$/;    // "$11.50", "$1", "$0.01"
+var COLORS_RE = /^\d+\s+colou?rs?$/i;          // "5 colors"
+var BADGE_RE = /^(new|sale|bestseller|trending|popular|only .*\bleft\b)$/i;
+
+function isSkippable(line) {
+  return RATING_RE.test(line) || SHIPPING_RE.test(line) || MSRP_RE.test(line)
+      || STANDALONE_PRICE_RE.test(line) || COLORS_RE.test(line)
+      || BADGE_RE.test(line);
 }
 
-// The store name is the only line per listing that is NOT a price, rating, or
-// shipping/discount line, so we keep those and drop the rest.
+// Drop a leading location-pin / bullet that sometimes copies before a name.
+function cleanName(s) {
+  return s.replace(/^(?:[\s•·]|📍|️)+/, '').trim();
+}
+
 function extractNames(text) {
+  var lines = text.split(/\r?\n/).map(function (s) { return s.trim(); });
   var out = [];
-  var lines = text.split(/\r?\n/);
   for (var i = 0; i < lines.length; i++) {
-    var line = lines[i].trim();
-    if (!line || isNoise(line)) continue;
-    out.push(line);
+    if (!MIN_RE.test(lines[i])) continue;       // found a "$X min" anchor
+    for (var j = i - 1; j >= 0; j--) {
+      var L = lines[j];
+      if (!L) continue;                         // skip blank lines
+      if (MIN_RE.test(L)) break;                // ran into the previous listing
+      if (isSkippable(L)) continue;             // skip price/rating/shipping/badge
+      out.push(cleanName(L));                   // the line above = the brand name
+      break;
+    }
   }
   return out;
 }

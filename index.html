@@ -81,8 +81,13 @@
     <div class="row">
       <button class="secondary" id="pasteBtn" type="button">Paste from clipboard</button>
       <button class="primary" id="addBtn" type="button" disabled>Add to list &amp; clear</button>
+      <button class="secondary" id="addRawBtn" type="button">Add lines as-is</button>
       <button class="secondary" id="clearBoxBtn" type="button">Clear box</button>
     </div>
+    <p class="hint" style="font-size:13px;">Use <strong>Add to list</strong> for
+      copied marketplace pages (it filters out everything but brand names). Use
+      <strong>Add lines as-is</strong> when you've pasted a plain list of brand
+      names (one per line) — every line is saved exactly as typed.</p>
     <div class="opts">
       <label><input type="checkbox" id="dedupe" checked /> Skip names already in the list</label>
     </div>
@@ -223,9 +228,13 @@ function showFlash(msg) {
 }
 
 // --- Actions --------------------------------------------------------------
-function addToList() {
-  var names = pendingNames();
-  if (!names.length) return;
+// Merge a set of names into the compiled list (respecting the dedupe option),
+// then clear the box and report what happened.
+function addNames(names) {
+  if (!names.length) {
+    showFlash('Nothing to add — the box looks empty.');
+    return;
+  }
   var added = 0, skipped = 0;
   for (var i = 0; i < names.length; i++) {
     var key = names[i].toLowerCase();
@@ -244,13 +253,32 @@ function addToList() {
   showFlash(msg);
 }
 
+// Treat the pasted text as an already-made list of brand names: keep every
+// non-empty line exactly as typed (no marketplace filtering). Handles a single
+// comma-separated line too, and ignores a leading "Store Name" header.
+function rawLines(text) {
+  var parts = text.split(/\r?\n/);
+  if (parts.length <= 1 && text.indexOf(',') > -1) parts = text.split(',');
+  var out = [];
+  for (var i = 0; i < parts.length; i++) {
+    var line = parts[i].trim();
+    if (!line) continue;
+    if (out.length === 0 && line.toLowerCase() === 'store name') continue;
+    out.push(line);
+  }
+  return out;
+}
+
 input.addEventListener('input', refreshPending);
 
 document.getElementById('clearBoxBtn').addEventListener('click', function () {
   input.value = ''; refreshPending(); input.focus();
 });
 
-addBtn.addEventListener('click', addToList);
+addBtn.addEventListener('click', function () { addNames(pendingNames()); });
+document.getElementById('addRawBtn').addEventListener('click', function () {
+  addNames(rawLines(input.value));
+});
 
 document.getElementById('pasteBtn').addEventListener('click', function () {
   if (navigator.clipboard && navigator.clipboard.readText) {

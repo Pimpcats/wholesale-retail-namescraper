@@ -51,6 +51,28 @@
     download it all to Excel. Everything runs in your browser — nothing is
     uploaded, and your list is saved automatically in this browser.</p>
 
+  <!-- Easier copying -->
+  <div class="card">
+    <label class="section">Easier copying — no highlighting needed</label>
+    <p class="hint" style="font-size:14px;">
+      You don't have to drag-select the page. Pick whichever is easier:</p>
+    <ul style="margin:6px 0 0; padding-left:20px; font-size:14px; line-height:1.6;">
+      <li><strong>Select All + Copy:</strong> click the page, press
+        <kbd>Ctrl</kbd>+<kbd>A</kbd>, then <kbd>Ctrl</kbd>+<kbd>C</kbd>. Paste
+        below — the junk (menus, titles, prices) is ignored automatically.</li>
+      <li><strong>One-click grab:</strong> drag this button up to your browser's
+        bookmarks bar &nbsp;→&nbsp;
+        <a id="bookmarklet" href="#" style="font-weight:700; color:var(--accent);
+           text-decoration:none; border:1px solid var(--accent); padding:3px 8px;
+           border-radius:6px;">📋 Grab brands</a><br>
+        Then, on any marketplace page, click it. It copies the brand names for you;
+        come back here and click <em>Paste from clipboard</em>.</li>
+    </ul>
+    <p class="muted" style="margin-top:8px;">The one-click grabber may not run on
+      sites with strict security settings — if it does nothing, use Select All +
+      Copy instead.</p>
+  </div>
+
   <!-- Step 1: paste + add -->
   <div class="card">
     <label class="section" for="input">1. Paste a page, then add it to the list</label>
@@ -306,6 +328,63 @@ xlsxBtn.addEventListener('click', function () {
   XLSX.utils.book_append_sheet(wb, ws, 'Store Names');
   XLSX.writeFile(wb, 'store_names.xlsx');
 });
+
+// --- One-click bookmarklet ------------------------------------------------
+// This function is serialized into a "javascript:" bookmark. When clicked on a
+// marketplace page it reads the page text, extracts brand names with the same
+// "$X min" anchor logic, and copies them to the clipboard -- no highlighting.
+function grabBrands() {
+  var MIN = /\$\s?[\d.,]+\s*min/i,
+      RAT = /^\d+(\.\d+)?$/,
+      SHIP = /(free shipping|%\s*off|\bup to\b|\$\s?[\d,]+\s*off)/i,
+      MSRP = /\bMSRP\b/i,
+      PR = /^\$\s?[\d.,]+$/,
+      COL = /^\d+\s+colou?rs?$/i,
+      BAD = /^(new|sale|bestseller|trending|popular|only .*\bleft\b)$/i;
+  function sk(l) {
+    return RAT.test(l) || SHIP.test(l) || MSRP.test(l) || PR.test(l)
+        || COL.test(l) || BAD.test(l);
+  }
+  var L = (document.body.innerText || '').split(/\r?\n/).map(function (s) { return s.trim(); }),
+      o = [];
+  for (var i = 0; i < L.length; i++) {
+    if (!MIN.test(L[i])) continue;
+    for (var j = i - 1; j >= 0; j--) {
+      var x = L[j];
+      if (!x) continue;
+      if (MIN.test(x)) break;
+      if (sk(x)) continue;
+      o.push(x.replace(/^[\s•·\u{1F4CD}️]+/u, '').trim());
+      break;
+    }
+  }
+  if (!o.length) {
+    alert('No brand names found. Scroll so listings load, then click again.');
+    return;
+  }
+  var text = o.join('\n');
+  function done() {
+    alert('Copied ' + o.length + ' brand name(s)!\n\nOpen the Name Scraper app, '
+        + 'click "Paste from clipboard", then "Add to list".');
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, function () {
+      window.prompt('Copy these brand names (Ctrl+C):', text);
+    });
+  } else {
+    window.prompt('Copy these brand names (Ctrl+C):', text);
+  }
+}
+
+var bm = document.getElementById('bookmarklet');
+if (bm) {
+  bm.href = 'javascript:(' + grabBrands.toString().replace(/\s+/g, ' ') + ')();';
+  bm.addEventListener('click', function (e) {
+    e.preventDefault();
+    alert('Drag this button to your bookmarks bar, then click it from a '
+        + 'marketplace page. (Clicking it here on the app does nothing.)');
+  });
+}
 
 // --- Init -----------------------------------------------------------------
 loadMaster();

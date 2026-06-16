@@ -64,13 +64,14 @@
 
   <!-- Optional auto-fill -->
   <div class="card">
-    <details id="autoDetails">
-      <summary>Optional: auto-fill using a free Google API key</summary>
+    <details id="autoDetails" open>
+      <summary>Auto-fill websites &amp; Instagram</summary>
       <p class="muted" style="margin-top:8px;">
-        This tries to fill the Website and Instagram columns automatically using
-        Google's Custom Search API. You need a free API key and a Search-Engine ID
-        (one-time setup; ~100 free lookups/day). Without this, just use the
-        per-brand search links in the table — they always work.
+        <strong>Websites</strong> are looked up automatically with a free service
+        (no key needed). <strong>Instagram</strong> uses Google's Custom Search —
+        paste a free API key + Search-engine ID below, and make sure your search
+        engine is set to search <code>instagram.com</code>. Either way, the
+        per-brand search links in the table always work as a fallback.
         <a class="nav" href="https://developers.google.com/custom-search/v1/introduction" target="_blank" rel="noopener">How to get a key &amp; ID &rarr;</a>
       </p>
       <div class="row keyrow">
@@ -225,6 +226,19 @@ async function cse(q) {
   return (d.items || []).map(function (it) { return it.link; });
 }
 
+// Free, no-key company-domain lookup (runs in the browser). Returns "" if no
+// confident match is found.
+async function clearbitDomain(brand) {
+  try {
+    var r = await fetch('https://autocomplete.clearbit.com/v1/companies/suggest?query='
+      + encodeURIComponent(brand));
+    if (!r.ok) return '';
+    var d = await r.json();
+    if (d && d.length && d[0] && d[0].domain) return 'https://' + d[0].domain;
+  } catch (e) { /* network/CORS: just skip */ }
+  return '';
+}
+
 function firstWebsite(links) {
   for (var i = 0; i < links.length; i++) {
     if (!SOCIAL.test(links[i])) return links[i];
@@ -242,40 +256,41 @@ function firstInstagram(links) {
 }
 
 async function autoFill() {
-  if (!cfg.key || !cfg.cx) {
-    setStatus('Enter your API key and Search engine ID first.');
-    return;
-  }
   stopRequested = false;
+  var igEnabled = !!(cfg.key && cfg.cx);
   document.getElementById('autoFillBtn').disabled = true;
   document.getElementById('stopBtn').disabled = false;
-  var done = 0, filled = 0;
+  if (!igEnabled) {
+    setStatus('No Google key set — filling websites only. Add a key + cx for Instagram.');
+  }
+  var done = 0, filled = 0, igStopped = false;
   for (var i = 0; i < brands.length; i++) {
     if (stopRequested) { setStatus('Stopped after ' + done + ' brand(s).'); break; }
     var b = brands[i], m = matchFor(b);
     setStatus('Looking up ' + (i + 1) + ' of ' + brands.length + ': ' + b + ' …');
-    try {
-      if (!m.website) {
-        var w = firstWebsite(await cse(b + ' official site'));
-        if (w) { m.website = w; filled++; }
-      }
-      if (!m.instagram) {
-        var ig = firstInstagram(await cse('site:instagram.com ' + b));
-        if (ig) { m.instagram = ig; filled++; }
-      }
-      save(MATCH_KEY, matches);
-      render();
-    } catch (e) {
-      if (e.message === 'limit') {
-        setStatus('Google API daily limit or permission error reached after ' +
-          done + ' brand(s). The rest still have working search links.');
-        break;
-      }
-      // network/other: skip this brand and continue
+
+    if (!m.website) {
+      var w = await clearbitDomain(b);          // free, no key
+      if (w) { m.website = w; filled++; }
     }
+    if (!m.instagram && igEnabled && !igStopped) {
+      try {
+        var ig = firstInstagram(await cse(b));  // engine searches instagram.com
+        if (ig) { m.instagram = ig; filled++; }
+      } catch (e) {
+        if (e.message === 'limit') {
+          igStopped = true;
+          setStatus('Google API limit/permission reached — websites continue, '
+            + 'Instagram paused. (Check the API is enabled and within quota.)');
+        }
+        // other errors: skip Instagram for this brand
+      }
+    }
+    save(MATCH_KEY, matches);
+    render();
     done++;
   }
-  if (!stopRequested && done >= brands.length) {
+  if (!stopRequested) {
     setStatus('Done. Filled ' + filled + ' field(s). Review and fix any that look off.');
   }
   document.getElementById('autoFillBtn').disabled = false;

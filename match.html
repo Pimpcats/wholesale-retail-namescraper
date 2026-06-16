@@ -149,12 +149,20 @@ function searchLinks(brand) {
     webGoogle: googleLink(brand + ' official website'),
     igGoogle: googleLink(brand + ' instagram'),
     igGuess: 'https://www.instagram.com/' + s + '/',
-    webGuess: googleLink(brand) // safest "website" guess is a Google search
+    webGuess: googleLink(brand), // safest "website" guess is a Google search
+    contactGoogle: googleLink('"' + brand + '" email OR phone OR contact')
   };
+}
+// Build a likely "/contact" URL from a website the user already found.
+function contactPage(url) {
+  var u = url.trim();
+  if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+  return u.replace(/\/+$/, '') + '/contact';
 }
 function matchFor(brand) {
   var k = brand.toLowerCase();
-  if (!matches[k]) matches[k] = { website: '', instagram: '' };
+  if (!matches[k]) matches[k] = { website: '', instagram: '', contact: '' };
+  if (matches[k].contact === undefined) matches[k].contact = '';
   return matches[k];
 }
 
@@ -172,7 +180,7 @@ function render() {
     return;
   }
   var html = '<table><thead><tr><th>Brand</th><th>Website</th>' +
-             '<th>Instagram</th></tr></thead><tbody>';
+             '<th>Instagram</th><th>Contact (email / phone)</th></tr></thead><tbody>';
   for (var i = 0; i < brands.length; i++) {
     var b = brands[i], m = matchFor(b), L = searchLinks(b);
     html += '<tr>' +
@@ -186,6 +194,13 @@ function render() {
         '<div class="links">' +
           '<a href="' + L.igGuess + '" target="_blank" rel="noopener">Try @' + esc(slug(b)) + '</a>' +
           '<a href="' + L.igGoogle + '" target="_blank" rel="noopener">Google search</a>' +
+        '</div>' +
+      '</td>' +
+      '<td>' +
+        '<input data-b="' + esc(b) + '" data-f="contact" value="' + esc(m.contact || '') + '" placeholder="email / phone" />' +
+        '<div class="links">' +
+          '<a href="' + L.contactGoogle + '" target="_blank" rel="noopener">Find contact</a>' +
+          (m.website ? '<a href="' + contactPage(m.website) + '" target="_blank" rel="noopener">Contact page</a>' : '') +
         '</div>' +
       '</td>' +
     '</tr>';
@@ -299,10 +314,12 @@ async function autoFill() {
 
 // --- Downloads ------------------------------------------------------------
 function rows() {
-  var out = [['Brand', 'Website', 'Instagram', 'Website search', 'Instagram search']];
+  var out = [['Brand', 'Website', 'Instagram', 'Contact',
+              'Website search', 'Instagram search', 'Contact search']];
   for (var i = 0; i < brands.length; i++) {
     var b = brands[i], m = matchFor(b), L = searchLinks(b);
-    out.push([b, m.website || '', m.instagram || '', L.webGoogle, L.igGoogle]);
+    out.push([b, m.website || '', m.instagram || '', m.contact || '',
+              L.webGoogle, L.igGoogle, L.contactGoogle]);
   }
   return out;
 }

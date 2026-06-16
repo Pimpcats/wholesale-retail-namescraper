@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Brand Matcher — Website &amp; Instagram</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root { --accent:#2b7a4b; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         margin: 0; background: #f5f6f8; color: #1c1e21; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 14px; color: #555; }
+  a.nav { color: var(--accent); font-weight: 600; text-decoration: none; }
+  .card { background: #fff; border: 1px solid #e3e5e8; border-radius: 10px;
+          padding: 16px; margin-bottom: 16px; }
+  label.section { font-weight: 600; display: block; margin-bottom: 6px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+  button { cursor: pointer; border: 0; border-radius: 8px; padding: 10px 14px;
+           font-size: 14px; font-weight: 600; }
+  button.primary { background: var(--accent); color: #fff; }
+  button.secondary { background: #e7e9ed; color: #1c1e21; }
+  button.danger { background: #f3dcdc; color: #8a1f1f; }
+  button:disabled { opacity: .5; cursor: default; }
+  textarea { width: 100%; min-height: 90px; padding: 10px; border: 1px solid #ccd0d5;
+             border-radius: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid #eceef0; vertical-align: top; }
+  th { color: #555; font-size: 13px; }
+  td.brand { font-weight: 600; white-space: nowrap; }
+  td input { width: 100%; padding: 6px 8px; border: 1px solid #d6d9de; border-radius: 6px; font-size: 13px; }
+  .links a { display: inline-block; margin-right: 8px; font-size: 12px; color: var(--accent);
+             text-decoration: none; white-space: nowrap; }
+  .muted { color: #777; font-size: 13px; }
+  details summary { cursor: pointer; font-weight: 600; }
+  .keyrow input { padding: 8px; border: 1px solid #d6d9de; border-radius: 6px; font-size: 13px; }
+  #status { color: var(--accent); font-weight: 600; min-height: 18px; margin-top: 8px; }
+  .empty { color: #777; padding: 12px 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Brand Matcher — Website &amp; Instagram</h1>
+  <p class="sub">Match each brand to its website and Instagram.
+    <a class="nav" href="index.html">&larr; Back to the Name Scraper</a></p>
+
+  <!-- Load brands -->
+  <div class="card">
+    <label class="section">Brands to match</label>
+    <p class="muted" id="loadedNote"></p>
+    <div class="row">
+      <button class="secondary" id="reloadBtn" type="button">Reload from compiled list</button>
+      <button class="secondary" id="pasteToggle" type="button">Paste a list instead</button>
+    </div>
+    <div id="pasteArea" style="display:none; margin-top:10px;">
+      <textarea id="pasteBox" placeholder="One brand per line..."></textarea>
+      <div class="row">
+        <button class="primary" id="usePastedBtn" type="button">Use these brands</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Optional auto-fill -->
+  <div class="card">
+    <details id="autoDetails">
+      <summary>Optional: auto-fill using a free Google API key</summary>
+      <p class="muted" style="margin-top:8px;">
+        This tries to fill the Website and Instagram columns automatically using
+        Google's Custom Search API. You need a free API key and a Search-Engine ID
+        (one-time setup; ~100 free lookups/day). Without this, just use the
+        per-brand search links in the table — they always work.
+        <a class="nav" href="https://developers.google.com/custom-search/v1/introduction" target="_blank" rel="noopener">How to get a key &amp; ID &rarr;</a>
+      </p>
+      <div class="row keyrow">
+        <input type="text" id="apiKey" placeholder="Google API key" size="34" />
+        <input type="text" id="cx" placeholder="Search engine ID (cx)" size="24" />
+        <button class="secondary" id="saveKeyBtn" type="button">Save key</button>
+      </div>
+      <div class="row">
+        <button class="primary" id="autoFillBtn" type="button">Auto-fill empty fields</button>
+        <button class="secondary" id="stopBtn" type="button" disabled>Stop</button>
+      </div>
+      <div id="status"></div>
+    </details>
+  </div>
+
+  <!-- The table -->
+  <div class="card">
+    <label class="section">Matches</label>
+    <div id="tableWrap"><p class="empty" id="emptyMsg">No brands loaded yet.</p></div>
+    <div class="row">
+      <button class="primary" id="xlsxBtn" type="button" disabled>Download Excel (.xlsx)</button>
+      <button class="secondary" id="csvBtn" type="button" disabled>Download CSV</button>
+      <button class="danger" id="clearMatchesBtn" type="button">Clear saved matches</button>
+    </div>
+    <p class="muted">Website/Instagram cells are editable — click a search link,
+      copy the address, and paste it in. Your entries are saved automatically.</p>
+  </div>
+</div>
+
+<script>
+var LIST_KEY = 'namescraper.list';       // shared with the scraper page
+var MATCH_KEY = 'namescraper.matches';   // { brandLower: {website, instagram} }
+var CFG_KEY = 'namescraper.cse';         // { key, cx }
+
+var brands = [];
+var matches = load(MATCH_KEY, {});
+var cfg = load(CFG_KEY, {});
+var stopRequested = false;
+
+function load(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) || fallback; }
+  catch (e) { return fallback; }
+}
+function save(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+}
+
+// --- Brand loading --------------------------------------------------------
+function loadFromList() {
+  brands = load(LIST_KEY, []);
+  render();
+}
+function setBrands(arr) {
+  var seen = {}, out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var b = String(arr[i]).trim();
+    if (!b) continue;
+    var k = b.toLowerCase();
+    if (seen[k]) continue;
+    seen[k] = true; out.push(b);
+  }
+  brands = out;
+  render();
+}
+
+// --- Helpers --------------------------------------------------------------
+function slug(name) { return name.toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+function googleLink(q) {
+  return 'https://www.google.com/search?q=' + encodeURIComponent(q);
+}
+function searchLinks(brand) {
+  var s = slug(brand);
+  return {
+    webGoogle: googleLink(brand + ' official website'),
+    igGoogle: googleLink(brand + ' instagram'),
+    igGuess: 'https://www.instagram.com/' + s + '/',
+    webGuess: googleLink(brand) // safest "website" guess is a Google search
+  };
+}
+function matchFor(brand) {
+  var k = brand.toLowerCase();
+  if (!matches[k]) matches[k] = { website: '', instagram: '' };
+  return matches[k];
+}
+
+// --- Rendering ------------------------------------------------------------
+function render() {
+  var wrap = document.getElementById('tableWrap');
+  document.getElementById('loadedNote').textContent =
+    brands.length ? (brands.length + ' brand(s) loaded.') : '';
+  if (!brands.length) {
+    wrap.innerHTML = '<p class="empty">No brands loaded. Build a list on the ' +
+      'Name Scraper page, then come back and click "Reload from compiled list" — ' +
+      'or paste a list above.</p>';
+    document.getElementById('xlsxBtn').disabled = true;
+    document.getElementById('csvBtn').disabled = true;
+    return;
+  }
+  var html = '<table><thead><tr><th>Brand</th><th>Website</th>' +
+             '<th>Instagram</th></tr></thead><tbody>';
+  for (var i = 0; i < brands.length; i++) {
+    var b = brands[i], m = matchFor(b), L = searchLinks(b);
+    html += '<tr>' +
+      '<td class="brand">' + esc(b) + '</td>' +
+      '<td>' +
+        '<input data-b="' + esc(b) + '" data-f="website" value="' + esc(m.website) + '" placeholder="website URL" />' +
+        '<div class="links"><a href="' + L.webGoogle + '" target="_blank" rel="noopener">Google search</a></div>' +
+      '</td>' +
+      '<td>' +
+        '<input data-b="' + esc(b) + '" data-f="instagram" value="' + esc(m.instagram) + '" placeholder="instagram URL/handle" />' +
+        '<div class="links">' +
+          '<a href="' + L.igGuess + '" target="_blank" rel="noopener">Try @' + esc(slug(b)) + '</a>' +
+          '<a href="' + L.igGoogle + '" target="_blank" rel="noopener">Google search</a>' +
+        '</div>' +
+      '</td>' +
+    '</tr>';
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+
+  var inputs = wrap.querySelectorAll('input');
+  for (var j = 0; j < inputs.length; j++) {
+    inputs[j].addEventListener('input', function () {
+      var b = this.getAttribute('data-b'), f = this.getAttribute('data-f');
+      matchFor(b)[f] = this.value.trim();
+      save(MATCH_KEY, matches);
+    });
+  }
+  document.getElementById('xlsxBtn').disabled = false;
+  document.getElementById('csvBtn').disabled = false;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                  .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// --- Auto-fill via Google Custom Search -----------------------------------
+var SOCIAL = /(instagram|facebook|tiktok|pinterest|twitter|x\.com|youtube|etsy|amazon|faire|linktr|linkedin)\./i;
+
+function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+async function cse(q) {
+  var url = 'https://www.googleapis.com/customsearch/v1?key=' +
+    encodeURIComponent(cfg.key) + '&cx=' + encodeURIComponent(cfg.cx) +
+    '&num=5&q=' + encodeURIComponent(q);
+  var r = await fetch(url);
+  if (r.status === 429 || r.status === 403) throw new Error('limit');
+  if (!r.ok) throw new Error('http ' + r.status);
+  var d = await r.json();
+  return (d.items || []).map(function (it) { return it.link; });
+}
+
+function firstWebsite(links) {
+  for (var i = 0; i < links.length; i++) {
+    if (!SOCIAL.test(links[i])) return links[i];
+  }
+  return '';
+}
+function firstInstagram(links) {
+  for (var i = 0; i < links.length; i++) {
+    var m = links[i].match(/^https?:\/\/(?:www\.)?instagram\.com\/([A-Za-z0-9_.]+)\/?$/);
+    if (m && m[1] !== 'p' && m[1] !== 'explore' && m[1] !== 'reel') {
+      return 'https://www.instagram.com/' + m[1] + '/';
+    }
+  }
+  return '';
+}
+
+async function autoFill() {
+  if (!cfg.key || !cfg.cx) {
+    setStatus('Enter your API key and Search engine ID first.');
+    return;
+  }
+  stopRequested = false;
+  document.getElementById('autoFillBtn').disabled = true;
+  document.getElementById('stopBtn').disabled = false;
+  var done = 0, filled = 0;
+  for (var i = 0; i < brands.length; i++) {
+    if (stopRequested) { setStatus('Stopped after ' + done + ' brand(s).'); break; }
+    var b = brands[i], m = matchFor(b);
+    setStatus('Looking up ' + (i + 1) + ' of ' + brands.length + ': ' + b + ' …');
+    try {
+      if (!m.website) {
+        var w = firstWebsite(await cse(b + ' official site'));
+        if (w) { m.website = w; filled++; }
+      }
+      if (!m.instagram) {
+        var ig = firstInstagram(await cse('site:instagram.com ' + b));
+        if (ig) { m.instagram = ig; filled++; }
+      }
+      save(MATCH_KEY, matches);
+      render();
+    } catch (e) {
+      if (e.message === 'limit') {
+        setStatus('Google API daily limit or permission error reached after ' +
+          done + ' brand(s). The rest still have working search links.');
+        break;
+      }
+      // network/other: skip this brand and continue
+    }
+    done++;
+  }
+  if (!stopRequested && done >= brands.length) {
+    setStatus('Done. Filled ' + filled + ' field(s). Review and fix any that look off.');
+  }
+  document.getElementById('autoFillBtn').disabled = false;
+  document.getElementById('stopBtn').disabled = true;
+}
+
+// --- Downloads ------------------------------------------------------------
+function rows() {
+  var out = [['Brand', 'Website', 'Instagram', 'Website search', 'Instagram search']];
+  for (var i = 0; i < brands.length; i++) {
+    var b = brands[i], m = matchFor(b), L = searchLinks(b);
+    out.push([b, m.website || '', m.instagram || '', L.webGoogle, L.igGoogle]);
+  }
+  return out;
+}
+function downloadBlob(blob, name) {
+  var url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click();
+  document.body.removeChild(a); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+}
+
+document.getElementById('csvBtn').addEventListener('click', function () {
+  var data = rows(), lines = [];
+  for (var i = 0; i < data.length; i++) {
+    lines.push(data[i].map(function (v) {
+      v = String(v);
+      return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    }).join(','));
+  }
+  downloadBlob(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' }),
+    'brand_matches.csv');
+});
+
+document.getElementById('xlsxBtn').addEventListener('click', function () {
+  if (typeof XLSX === 'undefined') { alert('Excel library could not load. Use CSV instead.'); return; }
+  var ws = XLSX.utils.aoa_to_sheet(rows());
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Brand Matches');
+  XLSX.writeFile(wb, 'brand_matches.xlsx');
+});
+
+// --- Wiring ---------------------------------------------------------------
+document.getElementById('reloadBtn').addEventListener('click', loadFromList);
+document.getElementById('pasteToggle').addEventListener('click', function () {
+  var a = document.getElementById('pasteArea');
+  a.style.display = a.style.display === 'none' ? 'block' : 'none';
+});
+document.getElementById('usePastedBtn').addEventListener('click', function () {
+  var txt = document.getElementById('pasteBox').value;
+  var parts = txt.split(/\r?\n/);
+  if (parts.length <= 1 && txt.indexOf(',') > -1) parts = txt.split(',');
+  setBrands(parts);
+});
+document.getElementById('saveKeyBtn').addEventListener('click', function () {
+  cfg = { key: document.getElementById('apiKey').value.trim(),
+          cx: document.getElementById('cx').value.trim() };
+  save(CFG_KEY, cfg);
+  setStatus('Saved.');
+});
+document.getElementById('autoFillBtn').addEventListener('click', autoFill);
+document.getElementById('stopBtn').addEventListener('click', function () { stopRequested = true; });
+document.getElementById('clearMatchesBtn').addEventListener('click', function () {
+  if (!confirm('Clear all saved website/Instagram matches?')) return;
+  matches = {}; save(MATCH_KEY, matches); render();
+});
+
+// --- Init -----------------------------------------------------------------
+if (cfg.key) document.getElementById('apiKey').value = cfg.key;
+if (cfg.cx) document.getElementById('cx').value = cfg.cx;
+loadFromList();
+</script>
+</body>
+</html>

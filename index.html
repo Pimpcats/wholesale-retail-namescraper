@@ -19,8 +19,8 @@
   p.sub { margin: 0 0 18px; color: #555; }
   .card { background: #fff; border: 1px solid #e3e5e8; border-radius: 10px;
           padding: 16px; margin-bottom: 16px; }
-  label { font-weight: 600; display: block; margin-bottom: 6px; }
-  textarea { width: 100%; min-height: 220px; resize: vertical; padding: 10px;
+  label.section { font-weight: 600; display: block; margin-bottom: 6px; }
+  textarea { width: 100%; min-height: 180px; resize: vertical; padding: 10px;
              font-family: ui-monospace, Consolas, monospace; font-size: 13px;
              border: 1px solid #ccd0d5; border-radius: 8px; }
   .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
@@ -29,46 +29,58 @@
            font-size: 14px; font-weight: 600; }
   button.primary { background: var(--accent); color: #fff; }
   button.secondary { background: #e7e9ed; color: #1c1e21; }
+  button.danger { background: #f3dcdc; color: #8a1f1f; }
   button:disabled { opacity: .5; cursor: default; }
-  .opts { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0 0;
+  .opts { display: flex; gap: 18px; flex-wrap: wrap; margin: 8px 0 0;
           font-size: 14px; }
-  .opts label { font-weight: 400; display: inline-flex; gap: 6px;
-                align-items: center; margin: 0; }
-  ol#preview { background: #fafbfc; border: 1px solid #eceef0; border-radius: 8px;
-               max-height: 280px; overflow: auto; margin: 0; padding: 10px 10px 10px 34px; }
-  ol#preview li { padding: 2px 0; }
+  .opts label { display: inline-flex; gap: 6px; align-items: center; }
+  select[multiple]#list { width: 100%; min-height: 220px; border: 1px solid #eceef0;
+            border-radius: 8px; padding: 6px; font-size: 14px; background: #fafbfc; }
   .count { color: var(--accent); font-weight: 600; margin-top: 8px; }
+  .hint { color: #777; font-size: 13px; margin: 4px 0 0; }
   .muted { color: #777; font-size: 13px; }
+  .flash { color: var(--accent); font-weight: 600; min-height: 18px; margin-top: 8px; }
   footer { text-align: center; color: #999; font-size: 12px; margin-top: 24px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Wholesale / Retail Name Scraper</h1>
-  <p class="sub">Paste the copied page text below. It keeps only the
-    <strong>store names</strong> and drops the prices, ratings, and shipping /
-    discount lines. Everything runs in your browser — nothing is uploaded.</p>
+  <p class="sub">Paste a page, click <strong>Add to list</strong> (it clears the
+    box), then paste the next page and add again. Build up one big list, then
+    download it all to Excel. Everything runs in your browser — nothing is
+    uploaded, and your list is saved automatically in this browser.</p>
 
+  <!-- Step 1: paste + add -->
   <div class="card">
-    <label for="input">1. Paste the page text</label>
-    <textarea id="input" placeholder="Chic Couture Inc&#10;&#10;$150 min&#10;&#10;Free shipping&#10;&#10;&#10;Bailey Rose&#10;&#10;4.8&#10;&#10;$50 min&#10;&#10;Free shipping"></textarea>
+    <label class="section" for="input">1. Paste a page, then add it to the list</label>
+    <textarea id="input" placeholder="Paste the copied page text here..."></textarea>
+    <p class="hint" id="pendingHint">0 names ready to add from this paste.</p>
     <div class="row">
       <button class="secondary" id="pasteBtn" type="button">Paste from clipboard</button>
-      <button class="secondary" id="clearBtn" type="button">Clear</button>
+      <button class="primary" id="addBtn" type="button" disabled>Add to list &amp; clear</button>
+      <button class="secondary" id="clearBoxBtn" type="button">Clear box</button>
     </div>
-  </div>
-
-  <div class="card">
-    <label>2. Extracted store names</label>
-    <ol id="preview"></ol>
-    <div class="count" id="count">0 names found</div>
     <div class="opts">
-      <label><input type="checkbox" id="dedupe" checked /> Skip duplicates</label>
+      <label><input type="checkbox" id="dedupe" checked /> Skip names already in the list</label>
+    </div>
+    <div class="flash" id="flash"></div>
+  </div>
+
+  <!-- Step 2: the compiled list -->
+  <div class="card">
+    <label class="section">2. Your compiled list</label>
+    <select id="list" multiple size="10"></select>
+    <div class="count" id="count">0 names in the list</div>
+    <div class="row">
+      <button class="secondary" id="removeBtn" type="button">Remove selected</button>
+      <button class="danger" id="clearListBtn" type="button">Clear whole list</button>
     </div>
   </div>
 
+  <!-- Step 3: download -->
   <div class="card">
-    <label>3. Download</label>
+    <label class="section">3. Download the whole list</label>
     <div class="row">
       <button class="primary" id="xlsxBtn" type="button" disabled>Download Excel (.xlsx)</button>
       <button class="secondary" id="csvBtn" type="button" disabled>Download CSV (opens in Excel)</button>
@@ -92,56 +104,115 @@ function isNoise(line) {
 
 // The store name is the only line per listing that is NOT a price, rating, or
 // shipping/discount line, so we keep those and drop the rest.
-function extractNames(text, dedupe) {
-  var out = [], seen = {};
+function extractNames(text) {
+  var out = [];
   var lines = text.split(/\r?\n/);
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i].trim();
     if (!line || isNoise(line)) continue;
-    if (dedupe) {
-      var key = line.toLowerCase();
-      if (seen[key]) continue;
-      seen[key] = true;
-    }
     out.push(line);
   }
   return out;
 }
 
-// --- Wiring ---------------------------------------------------------------
-var input   = document.getElementById('input');
-var preview = document.getElementById('preview');
-var count   = document.getElementById('count');
-var dedupe  = document.getElementById('dedupe');
-var xlsxBtn = document.getElementById('xlsxBtn');
-var csvBtn  = document.getElementById('csvBtn');
-var current = [];
+// --- Persistent compiled list --------------------------------------------
+var STORAGE_KEY = 'namescraper.list';
+var master = [];          // the compiled list of names (in order added)
+var masterSeen = {};      // lowercase -> true, for fast duplicate checks
 
-function refresh() {
-  current = extractNames(input.value, dedupe.checked);
-  preview.innerHTML = '';
-  for (var i = 0; i < current.length; i++) {
-    var li = document.createElement('li');
-    li.textContent = current[i];
-    preview.appendChild(li);
-  }
-  count.textContent = current.length + (current.length === 1 ? ' name found' : ' names found');
-  var none = current.length === 0;
-  xlsxBtn.disabled = none;
-  csvBtn.disabled = none;
+function loadMaster() {
+  try {
+    var saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    if (Array.isArray(saved)) {
+      for (var i = 0; i < saved.length; i++) {
+        var n = String(saved[i]);
+        master.push(n);
+        masterSeen[n.toLowerCase()] = true;
+      }
+    }
+  } catch (e) { /* ignore corrupt storage */ }
 }
 
-input.addEventListener('input', refresh);
-dedupe.addEventListener('change', refresh);
+function saveMaster() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(master)); }
+  catch (e) { /* storage may be unavailable; list still works in-memory */ }
+}
 
-document.getElementById('clearBtn').addEventListener('click', function () {
-  input.value = ''; refresh(); input.focus();
+// --- Elements -------------------------------------------------------------
+var input       = document.getElementById('input');
+var pendingHint = document.getElementById('pendingHint');
+var addBtn      = document.getElementById('addBtn');
+var dedupe      = document.getElementById('dedupe');
+var flash       = document.getElementById('flash');
+var listEl      = document.getElementById('list');
+var count       = document.getElementById('count');
+var xlsxBtn     = document.getElementById('xlsxBtn');
+var csvBtn      = document.getElementById('csvBtn');
+
+function pendingNames() { return extractNames(input.value); }
+
+function refreshPending() {
+  var n = pendingNames().length;
+  pendingHint.textContent = n + (n === 1 ? ' name ready to add from this paste.'
+                                          : ' names ready to add from this paste.');
+  addBtn.disabled = n === 0;
+}
+
+function renderList() {
+  listEl.innerHTML = '';
+  for (var i = 0; i < master.length; i++) {
+    var opt = document.createElement('option');
+    opt.value = master[i];
+    opt.textContent = (i + 1) + '.  ' + master[i];
+    listEl.appendChild(opt);
+  }
+  count.textContent = master.length + (master.length === 1 ? ' name in the list'
+                                                           : ' names in the list');
+  var empty = master.length === 0;
+  xlsxBtn.disabled = empty;
+  csvBtn.disabled = empty;
+}
+
+function showFlash(msg) {
+  flash.textContent = msg;
+  clearTimeout(showFlash._t);
+  showFlash._t = setTimeout(function () { flash.textContent = ''; }, 4000);
+}
+
+// --- Actions --------------------------------------------------------------
+function addToList() {
+  var names = pendingNames();
+  if (!names.length) return;
+  var added = 0, skipped = 0;
+  for (var i = 0; i < names.length; i++) {
+    var key = names[i].toLowerCase();
+    if (dedupe.checked && masterSeen[key]) { skipped++; continue; }
+    master.push(names[i]);
+    masterSeen[key] = true;
+    added++;
+  }
+  saveMaster();
+  renderList();
+  input.value = '';          // clear the box, ready for the next page
+  refreshPending();
+  input.focus();
+  var msg = 'Added ' + added + ' name' + (added === 1 ? '' : 's') + '.';
+  if (skipped) msg += ' Skipped ' + skipped + ' already in the list.';
+  showFlash(msg);
+}
+
+input.addEventListener('input', refreshPending);
+
+document.getElementById('clearBoxBtn').addEventListener('click', function () {
+  input.value = ''; refreshPending(); input.focus();
 });
+
+addBtn.addEventListener('click', addToList);
 
 document.getElementById('pasteBtn').addEventListener('click', function () {
   if (navigator.clipboard && navigator.clipboard.readText) {
     navigator.clipboard.readText().then(function (t) {
-      input.value = t; refresh();
+      input.value = t; refreshPending();
     }).catch(function () {
       alert('Your browser blocked clipboard access. Just paste with Ctrl+V into the box.');
     });
@@ -150,6 +221,36 @@ document.getElementById('pasteBtn').addEventListener('click', function () {
   }
 });
 
+document.getElementById('removeBtn').addEventListener('click', function () {
+  var selected = {};
+  for (var i = 0; i < listEl.options.length; i++) {
+    if (listEl.options[i].selected) selected[listEl.options[i].value.toLowerCase()] = true;
+  }
+  if (!Object.keys(selected).length) {
+    showFlash('Select one or more names in the list first.');
+    return;
+  }
+  var kept = [];
+  for (var j = 0; j < master.length; j++) {
+    var key = master[j].toLowerCase();
+    if (selected[key]) { delete masterSeen[key]; }
+    else { kept.push(master[j]); }
+  }
+  master = kept;
+  saveMaster();
+  renderList();
+});
+
+document.getElementById('clearListBtn').addEventListener('click', function () {
+  if (!master.length) return;
+  if (!confirm('Clear the whole compiled list? This cannot be undone.')) return;
+  master = [];
+  masterSeen = {};
+  saveMaster();
+  renderList();
+});
+
+// --- Downloads ------------------------------------------------------------
 function downloadBlob(blob, filename) {
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
@@ -159,10 +260,10 @@ function downloadBlob(blob, filename) {
 }
 
 csvBtn.addEventListener('click', function () {
-  if (!current.length) return;
+  if (!master.length) return;
   var rows = ['Store Name'];
-  for (var i = 0; i < current.length; i++) {
-    var v = current[i];
+  for (var i = 0; i < master.length; i++) {
+    var v = master[i];
     if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
     rows.push(v);
   }
@@ -172,20 +273,23 @@ csvBtn.addEventListener('click', function () {
 });
 
 xlsxBtn.addEventListener('click', function () {
-  if (!current.length) return;
+  if (!master.length) return;
   if (typeof XLSX === 'undefined') {
     alert('The Excel library could not load (no internet?). Use the CSV button instead — it opens in Excel too.');
     return;
   }
   var aoa = [['Store Name']];
-  for (var i = 0; i < current.length; i++) aoa.push([current[i]]);
+  for (var i = 0; i < master.length; i++) aoa.push([master[i]]);
   var ws = XLSX.utils.aoa_to_sheet(aoa);
   var wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Store Names');
   XLSX.writeFile(wb, 'store_names.xlsx');
 });
 
-refresh();
+// --- Init -----------------------------------------------------------------
+loadMaster();
+renderList();
+refreshPending();
 </script>
 </body>
 </html>
